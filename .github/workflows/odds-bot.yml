@@ -1,0 +1,28 @@
+name: Oddspedia Telegram Bot
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 9h sáng UTC mỗi ngày
+  workflow_dispatch:       # Cho phép chạy thủ công
+
+jobs:
+  analyze-and-send:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Tải code
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Cài Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📦 Cài thư viện
+      run: pip install -r requirements.txt
+        
+    - name: 🚀 Chạy bot
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: python main.py
