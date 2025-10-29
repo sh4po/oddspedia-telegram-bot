@@ -5,22 +5,21 @@ from src.config import Config
 
 class OddsAnalyzer:
     def __init__(self):
-        # BỎ GIỚI HẠN ODDS - lấy mọi odds
-        self.min_odds = 1.01  # Giữ tối thiểu nhưng rất thấp
-        self.max_odds = 100.0  # Giữ tối đa nhưng rất cao
+        # GIỚI HẠN ODDS HỢP LÝ - TRÁNH ODDS QUÁ CAO
+        self.min_odds = 1.3
+        self.max_odds = 3.0
         self.max_selection = Config.MAX_SELECTION
         self.api_key = Config.API_KEY
         
     def get_real_odds(self):
         """
-        Lấy dữ liệu kèo thật từ The Odds API - ĐA DẠNG GIẢI ĐẤU
+        Lấy dữ liệu kèo thật từ The Odds API - ODDS CHUẨN
         """
         all_sports_odds = []
         
-        # DANH SÁCH GIẢI ĐẤU ĐA DẠNG
+        # DANH SÁCH GIẢI ĐẤU CHẤT LƯỢNG
         sports = [
-            # BÓNG ĐÁ
-            'soccer',               # Tổng hợp
+            # BÓNG ĐÁ CHÂU ÂU
             'soccer_epl',           # Premier League
             'soccer_laliga',        # La Liga
             'soccer_serie_a',       # Serie A
@@ -28,20 +27,12 @@ class OddsAnalyzer:
             'soccer_ligue_one',     # Ligue 1
             'soccer_uefa_champs_league', # Champions League
             
-            # BÓNG RỔ - NHIỀU GIẢI
+            # BÓNG RỔ
             'basketball_nba',       # NBA
             'basketball_euroleague', # Euroleague
-            'basketball_wnba',      # WNBA
-            'basketball_ncaab',     # NCAA Men's
-            
-            # TENNIS THAY THẾ (nếu ATP lỗi)
-            'tennis_wta',           # Tennis WTA
-            'americanfootball_nfl', # NFL (thay thế tennis nếu cần)
-            'baseball_mlb'          # MLB (thay thế tennis nếu cần)
         ]
         
         sport_names = {
-            'soccer': '⚽ Bóng đá',
             'soccer_epl': '⚽ Premier League',
             'soccer_laliga': '⚽ La Liga', 
             'soccer_serie_a': '⚽ Serie A',
@@ -50,11 +41,6 @@ class OddsAnalyzer:
             'soccer_uefa_champs_league': '⚽ Champions League',
             'basketball_nba': '🏀 NBA',
             'basketball_euroleague': '🏀 Euroleague',
-            'basketball_wnba': '🏀 WNBA',
-            'basketball_ncaab': '🏀 NCAA',
-            'tennis_wta': '🎾 Tennis WTA',
-            'americanfootball_nfl': '🏈 NFL',
-            'baseball_mlb': '⚾ MLB'
         }
         
         successful_sports = 0
@@ -66,7 +52,7 @@ class OddsAnalyzer:
                 url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds"
                 params = {
                     'apiKey': self.api_key,
-                    'regions': 'eu,uk,us',
+                    'regions': 'eu',
                     'markets': 'h2h',
                     'oddsFormat': 'decimal',
                     'dateFormat': 'iso'
@@ -76,40 +62,39 @@ class OddsAnalyzer:
                 
                 if response.status_code == 200:
                     data = response.json()
-                    if data:  # Chỉ xử lý nếu có dữ liệu
+                    if data:
                         sport_odds = self.process_sport_odds(data, sport, sport_names.get(sport, sport))
-                        all_sports_odds.extend(sport_odds)
-                        successful_sports += 1
-                        print(f"✅ Tìm thấy {len(sport_odds)} kèo {sport_names.get(sport, sport)}")
+                        if sport_odds:  # Chỉ thêm nếu có kèo hợp lệ
+                            all_sports_odds.extend(sport_odds)
+                            successful_sports += 1
+                            print(f"✅ {sport_names.get(sport, sport)}: {len(sport_odds)} kèo hợp lệ")
+                        else:
+                            print(f"ℹ️  {sport_names.get(sport, sport)}: Không có kèo phù hợp")
                     else:
                         print(f"ℹ️  {sport_names.get(sport, sport)}: Không có trận nào")
                 elif response.status_code == 404:
-                    print(f"❌ {sport_names.get(sport, sport)}: Giải đấu không khả dụng (404)")
+                    print(f"❌ {sport_names.get(sport, sport)}: Giải đấu không khả dụng")
                 else:
                     print(f"❌ Lỗi {sport}: {response.status_code}")
-                    
-                # Dừng nếu đã có đủ dữ liệu từ 4-5 giải
-                if successful_sports >= 5 and len(all_sports_odds) >= 8:
-                    break
                     
             except Exception as e:
                 print(f"❌ Lỗi kết nối {sport}: {e}")
                 continue
         
-        print(f"🎯 Đã thu thập từ {successful_sports} giải đấu, tổng {len(all_sports_odds)} kèo")
+        print(f"🎯 Đã thu thập {len(all_sports_odds)} kèo từ {successful_sports} giải đấu")
         
         # Nếu không có kèo thật, dùng dữ liệu mẫu
         if not all_sports_odds:
             print("⚠️ Không tìm thấy kèo thật, dùng dữ liệu mẫu")
             return self.get_sample_odds()
         
-        # Sắp xếp và chọn top 3 từ tất cả giải đấu
-        all_sports_odds.sort(key=lambda x: x['odds'], reverse=True)
+        # Sắp xếp theo odds hợp lý nhất (không quá cao, không quá thấp)
+        all_sports_odds.sort(key=lambda x: abs(2.0 - x['odds']))  # Ưu tiên odds gần 2.0
         return all_sports_odds[:self.max_selection]
     
     def process_sport_odds(self, data, sport, sport_display_name):
         """
-        Xử lý dữ liệu cho từng giải đấu - CHỈ LẤY TRẬN TRONG 24H TỚI
+        Xử lý dữ liệu - CHỈ LẤY ODDS CHUẨN & TRẬN TRONG 24H
         """
         processed_odds = []
         seen_matches = set()
@@ -121,19 +106,12 @@ class OddsAnalyzer:
                 if not self.is_within_24_hours(commence_time):
                     continue
                 
-                # Xử lý tên đội cho các môn khác nhau
+                # Xử lý tên đội
                 home_team = match.get('home_team', '').strip()
                 away_team = match.get('away_team', '').strip()
                 
-                # Nếu không có home/away team (tennis), sử dụng các trường khác
                 if not home_team or not away_team:
-                    # Thử các trường khác cho tennis
-                    competitors = match.get('competitors', [])
-                    if len(competitors) >= 2:
-                        home_team = competitors[0].get('name', 'Player 1')
-                        away_team = competitors[1].get('name', 'Player 2')
-                    else:
-                        continue
+                    continue
                 
                 sport_title = match.get('sport_title', sport_display_name)
                 
@@ -144,44 +122,40 @@ class OddsAnalyzer:
                 if match_id in seen_matches:
                     continue
                 
-                # Tìm tỷ lệ TỐT NHẤT cho trận này - BỎ GIỚI HẠN ODDS
-                best_odds = None
-                best_bookmaker = None
+                # TÌM ODDS TRUNG BÌNH TỪ CÁC NHÀ CÁI UY TÍN
+                valid_odds = []
+                trusted_bookmakers = ['bet365', 'pinnacle', 'william hill', 'bwin', 'unibet']
                 
                 for bookmaker in match.get('bookmakers', []):
-                    bookmaker_name = bookmaker.get('title', 'Unknown')
+                    bookmaker_name = bookmaker.get('title', '').lower()
                     
-                    for market in bookmaker.get('markets', []):
-                        if market.get('key') == 'h2h':
-                            for outcome in market.get('outcomes', []):
-                                odds = outcome.get('price', 0)
-                                
-                                # BỎ GIỚI HẠN ODDS - LẤY MỌI ODDS
-                                # Chỉ kiểm tra odds hợp lệ (lớn hơn 1)
-                                if odds >= 1.0:
-                                    # Chọn tỷ lệ tốt nhất (cao nhất)
-                                    if best_odds is None or odds > best_odds:
-                                        best_odds = odds
-                                        best_bookmaker = bookmaker_name
+                    # Chỉ lấy từ nhà cái uy tín
+                    if any(trusted in bookmaker_name for trusted in trusted_bookmakers):
+                        for market in bookmaker.get('markets', []):
+                            if market.get('key') == 'h2h':
+                                for outcome in market.get('outcomes', []):
+                                    odds = outcome.get('price', 0)
+                                    # CHỈ LẤY ODDS TRONG KHOẢNG HỢP LÝ
+                                    if self.min_odds <= odds <= self.max_odds:
+                                        valid_odds.append(odds)
                 
-                # Nếu tìm thấy kèo phù hợp cho trận này
-                if best_odds is not None:
+                # Nếu có ít nhất 2 nhà cái có odds hợp lý, lấy trung bình
+                if len(valid_odds) >= 2:
+                    avg_odds = sum(valid_odds) / len(valid_odds)
+                    # Làm tròn đến 2 chữ số thập phân
+                    final_odds = round(avg_odds, 2)
+                    
                     processed_odds.append({
                         'match': f"{home_team} vs {away_team}",
-                        'odds': best_odds,
-                        'bookmaker': best_bookmaker,
+                        'odds': final_odds,
+                        'bookmaker': 'Multiple Trusted',
                         'match_time': self.format_match_time(commence_time),
                         'league': sport_title,
                         'sport': sport_display_name,
-                        'analysis': self.generate_analysis(best_odds, home_team, away_team, sport)
+                        'analysis': self.generate_detailed_analysis(final_odds, home_team, away_team, sport)
                     })
                     
-                    # Đánh dấu trận đã xử lý
                     seen_matches.add(match_id)
-                    
-                # Dừng khi đã thu thập đủ 3 trận cho mỗi giải
-                if len(processed_odds) >= 3:
-                    break
                     
             except Exception as e:
                 print(f"⚠️ Lỗi xử lý trận {sport}: {e}")
@@ -197,18 +171,13 @@ class OddsAnalyzer:
             if not commence_time_str:
                 return False
                 
-            # Chuyển đổi thời gian
             match_time = datetime.fromisoformat(commence_time_str.replace('Z', '+00:00'))
             now = datetime.now(match_time.tzinfo) if match_time.tzinfo else datetime.utcnow()
             
-            # Tính khoảng cách thời gian
             time_diff = match_time - now
-            
-            # Chỉ lấy trận trong 24h tới (0 đến 24 giờ)
             return timedelta(0) <= time_diff <= timedelta(hours=24)
             
-        except Exception as e:
-            print(f"⚠️ Lỗi kiểm tra thời gian: {e}")
+        except:
             return False
     
     def format_match_time(self, match_time_str):
@@ -219,102 +188,105 @@ class OddsAnalyzer:
             if match_time_str:
                 dt = datetime.fromisoformat(match_time_str.replace('Z', '+00:00'))
                 dt_vn = dt + timedelta(hours=7)
-                return dt_vn.strftime('%d/%m/%Y %H:%M')
-            return "Chưa xác định"
+                return dt_vn.strftime('%d/%m %H:%M')
+            return "Sắp diễn ra"
         except:
-            return "Chưa xác định"
+            return "Sắp diễn ra"
     
-    def generate_analysis(self, odds, home_team, away_team, sport):
+    def generate_detailed_analysis(self, odds, home_team, away_team, sport):
         """
-        Tạo phân tích CHI TIẾT dựa trên odds và thông tin trận đấu
+        PHÂN TÍCH CHI TIẾT - CẢI THIỆN CHẤT LƯỢNG
         """
-        # Phân tích dựa trên giá trị odds
+        # Phân tích theo giá trị odds
         if odds <= 1.5:
-            strength = "RẤT MẠNH"
-            confidence = "cao"
-            recommendation = "nên xem xét"
-        elif odds <= 2.0:
-            strength = "MẠNH" 
-            confidence = "khá cao"
-            recommendation = "có tiềm năng"
-        elif odds <= 3.0:
-            strength = "TƯƠNG ĐỐI"
-            confidence = "trung bình"
-            recommendation = "cần cân nhắc"
+            risk_level = "THẤP"
+            confidence = "RẤT CAO"
+            recommendation = "CƠ HỘI TỐT"
+            detail = "Đội chủ nhà được đánh giá vượt trội"
+        elif odds <= 1.8:
+            risk_level = "TRUNG BÌNH - THẤP"
+            confidence = "CAO"
+            recommendation = "ĐÁNG CÂN NHẮC"
+            detail = "Lợi thế sân nhà rõ rệt"
+        elif odds <= 2.2:
+            risk_level = "TRUNG BÌNH"
+            confidence = "KHÁ"
+            recommendation = "CÓ TIỀM NĂNG"
+            detail = "Trận đấu cân bằng nghiêng về chủ nhà"
+        elif odds <= 2.8:
+            risk_level = "TRUNG BÌNH - CAO"
+            confidence = "TRUNG BÌNH"
+            recommendation = "CẦN THẬN TRỌNG"
+            detail = "Đội khách có thể tạo bất ngờ"
         else:
-            strength = "CÂN BẰNG"
-            confidence = "thấp"
-            recommendation = "có thể rủi ro"
+            risk_level = "CAO"
+            confidence = "THẤP"
+            recommendation = "RỦI RO CAO"
+            detail = "Cơ hội cho bất ngờ"
         
         # Phân tích theo môn thể thao
         if 'soccer' in sport:
-            base_analysis = [
-                f"{home_team} {strength} trước {away_team}",
-                f"Tỷ lệ {odds} cho thấy {home_team} có lợi thế {confidence}",
-                f"Phong độ sân nhà của {home_team} {recommendation}",
-                f"{home_team} vs {away_team}: odds {odds} {recommendation} đầu tư",
-                f"Phân tích: {home_team} có {confidence} cơ hội thắng"
+            sport_specific = [
+                f"Phong độ sân nhà {home_team} ổn định",
+                f"Lịch sử đối đầu nghiêng về {home_team}",
+                f"{home_team} có hàng công mạnh mẽ",
+                f"Lợi thế sân nhà rõ rệt cho {home_team}",
+                f"{home_team} đang có chuỗi trận thắng ấn tượng"
             ]
         elif 'basketball' in sport:
-            base_analysis = [
-                f"{home_team} {strength} trên sân nhà",
-                f"NBA: {home_team} có odds {odds} {recommendation}",
-                f"Phong độ tấn công của {home_team} {confidence}",
-                f"{home_team} vs {away_team}: tỷ lệ {odds} {recommendation}",
-                f"Phân tích NBA: {home_team} có lợi thế {strength.lower()}"
-            ]
-        elif 'tennis' in sport:
-            base_analysis = [
-                f"Tay vợt {home_team} {strength}",
-                f"Tennis: {home_team} có odds {odds} {recommendation}",
-                f"Phong độ gần đây của {home_team} {confidence}",
-                f"{home_team} vs {away_team}: tỷ lệ {odds} {recommendation}",
-                f"Phân tích tennis: {home_team} có ưu thế {strength.lower()}"
+            sport_specific = [
+                f"{home_team} thi đấu hiệu quả trên sân nhà",
+                f"Phong độ tấn công của {home_team} vượt trội",
+                f"{home_team} có đội hình gần như mạnh nhất",
+                f"Lối chơi nhanh của {home_team} tạo nhiều cơ hội",
+                f"{home_team} có hàng công ổn định"
             ]
         else:
-            base_analysis = [
-                f"{home_team} {strength} trước đối thủ",
-                f"Tỷ lệ {odds} cho thấy cơ hội {confidence}",
-                f"{home_team} vs {away_team}: {recommendation} theo odds {odds}",
-                f"Phân tích: {home_team} có triển vọng {confidence}",
-                f"Odds {odds} {recommendation} cho {home_team}"
+            sport_specific = [
+                f"{home_team} được đánh giá cao hơn",
+                f"Phong độ hiện tại của {home_team} tốt hơn",
+                f"{home_team} có lợi thế sân nhà",
+                f"Đội hình {home_team} mạnh hơn đối thủ"
             ]
         
-        return random.choice(base_analysis)
+        # Kết hợp phân tích
+        base_analysis = random.choice(sport_specific)
+        
+        return f"🔍 {base_analysis}. {detail} | 📊 Odds: {odds} | ⚡ {recommendation} | 🛡️ Rủi ro: {risk_level} | ✅ Độ tin cậy: {confidence}"
     
     def get_sample_odds(self):
         """
-        Dữ liệu mẫu dự phòng - ĐA DẠNG GIẢI ĐẤU
+        Dữ liệu mẫu với ODDS CHUẨN
         """
-        current_time = datetime.now().strftime('%d/%m/%Y %H:%M')
-        print("⚠️ Sử dụng dữ liệu mẫu đa giải đấu")
+        current_time = datetime.now().strftime('%d/%m %H:%M')
+        print("⚠️ Sử dụng dữ liệu mẫu chất lượng")
         return [
             {
-                'match': 'Manchester United vs Liverpool',
-                'odds': 2.10,  # Odds đa dạng
+                'match': 'Manchester City vs Liverpool',
+                'odds': 1.85,
                 'bookmaker': 'Bet365',
                 'match_time': current_time,
                 'league': 'Premier League',
                 'sport': '⚽ Premier League',
-                'analysis': 'Trận derby nước Anh - cả hai đều có cơ hội'
+                'analysis': '🔍 Manchester City có phong độ sân nhà ổn định. Lợi thế sân nhà rõ rệt | 📊 Odds: 1.85 | ⚡ ĐÁNG CÂN NHẮC | 🛡️ Rủi ro: TRUNG BÌNH - THẤP | ✅ Độ tin cậy: CAO'
             },
             {
-                'match': 'LA Lakers vs Boston Celtics', 
-                'odds': 1.85,  # Odds đa dạng
+                'match': 'LA Lakers vs Golden State Warriors', 
+                'odds': 1.75,
                 'bookmaker': 'William Hill',
                 'match_time': current_time,
                 'league': 'NBA',
                 'sport': '🏀 NBA',
-                'analysis': 'Classic NBA rivalry - Lakers có lợi thế sân nhà'
+                'analysis': '🔍 LA Lakers thi đấu hiệu quả trên sân nhà. Lợi thế sân nhà rõ rệt | 📊 Odds: 1.75 | ⚡ ĐÁNG CÂN NHẮC | 🛡️ Rủi ro: TRUNG BÌNH - THẤP | ✅ Độ tin cậy: CAO'
             },
             {
-                'match': 'Barcelona vs Real Madrid',
-                'odds': 2.45,  # Odds đa dạng
+                'match': 'Real Madrid vs Barcelona',
+                'odds': 2.10,
                 'bookmaker': 'Pinnacle', 
                 'match_time': current_time,
                 'league': 'La Liga',
                 'sport': '⚽ La Liga',
-                'analysis': 'El Clásico - trận đấu cân bằng'
+                'analysis': '🔍 Real Madrid có phong độ sân nhà ổn định. Trận đấu cân bằng nghiêng về chủ nhà | 📊 Odds: 2.10 | ⚡ CÓ TIỀM NĂNG | 🛡️ Rủi ro: TRUNG BÌNH | ✅ Độ tin cậy: KHÁ'
             }
         ]
     
@@ -326,9 +298,9 @@ class OddsAnalyzer:
 
 if __name__ == "__main__":
     analyzer = OddsAnalyzer()
-    print("🔍 Đang phân tích kèo thật từ đa giải đấu...")
+    print("🔍 Đang phân tích kèo thật từ giải đấu uy tín...")
     top_odds = analyzer.get_top_odds()
-    print(f"🎯 Tìm thấy {len(top_odds)} kèo:")
+    print(f"🎯 Tìm thấy {len(top_odds)} kèo chất lượng:")
     for i, odd in enumerate(top_odds, 1):
         print(f"{i}. {odd['sport']}: {odd['match']}")
         print(f"   📊 Tỷ lệ: {odd['odds']} | 🏛 {odd['bookmaker']}")
